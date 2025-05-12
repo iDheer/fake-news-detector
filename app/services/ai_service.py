@@ -6,7 +6,7 @@ import asyncio
 from typing import Dict, Any, List, Tuple
 import torch
 from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain
+from langchain_core.runnables import RunnablePassthrough
 from langchain_community.document_loaders import TextLoader
 from langchain_text_splitters import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
@@ -83,8 +83,7 @@ class AIAnalysisService:
                 Format your response as a structured analysis with clear headings.
                 """
             )
-            
-            # Initialize OpenAI if configured and available
+              # Initialize OpenAI if configured and available
             if self.openai_available:
                 try:
                     self.llm = ChatOpenAI(
@@ -95,10 +94,8 @@ class AIAnalysisService:
                     
                     self.embeddings = OpenAIEmbeddings(api_key=OPENAI_API_KEY)
                     
-                    self.fact_check_chain = LLMChain(
-                        llm=self.llm,
-                        prompt=self.fact_check_template
-                    )
+                    # Create a chain using the newer API (replacing deprecated LLMChain)
+                    self.fact_check_chain = self.fact_check_template | self.llm
                     logger.info("OpenAI LLM initialized successfully")
                 except Exception as e:
                     logger.error(f"Error initializing OpenAI: {e}")
@@ -118,11 +115,8 @@ class AIAnalysisService:
                         google_api_key=GOOGLE_API_KEY,
                         model="models/embedding-001"
                     )
-                    
-                    self.fact_check_chain = LLMChain(
-                        llm=self.llm,
-                        prompt=self.fact_check_template
-                    )
+                      # Create a chain using the newer API (replacing deprecated LLMChain)
+                    self.fact_check_chain = self.fact_check_template | self.llm
                     logger.info("Gemini LLM initialized successfully")
                 except Exception as e:
                     logger.error(f"Error initializing Gemini: {e}")
@@ -302,14 +296,13 @@ class AIAnalysisService:
                 sources_text += f"\nNEWS SOURCE {i+1}: {article['title']}\n"
                 sources_text += f"Source: {article['source']}\n"
                 sources_text += f"Description: {article['description'][:300]}...\n"
-            
-            # Run the fact-checking chain
+              # Run the fact-checking chain (updated to use new LangChain API)
             result = await asyncio.to_thread(
-                lambda: self.fact_check_chain.run(
-                    news_title=title,
-                    news_content=content,
-                    sources=sources_text
-                )
+                lambda: self.fact_check_chain.invoke({
+                    "news_title": title,
+                    "news_content": content,
+                    "sources": sources_text
+                }).content
             )
             
             # Extract key information from the result

@@ -1,34 +1,98 @@
-                 +-------------+
-                 |    User     |
-                 +------+------+
-                        |
-                        | interacts
-                        v
-                 +------+------+
-                 | Streamlit UI|
-                 +------+------+
-                        |
-                        | API calls
-                        v
-+-------------------------------------------------------+
-|                     Backend                            |
-|  +-----------+                  +----------------+     |
-|  | FastAPI   +----------------> | Fake News      |     |
-|  +-----------+   orchestrates   | Agent          |     |
-|                                 +--------+-------+     |
-+-------------------------------------------------------+
-                                          |
-             +---------------------------+---------------------------+
-             |                           |                           |
-             v                           v                           v
-    +--------+-------+        +----------+----------+      +---------+--------+
-    | Reddit Service |        | Wikipedia Service   |      | News API Service |
-    +----------------+        +---------------------+      +------------------+
-                                                                    ^
-                                                                    |
-                                              +---------------------+-------------------+
-                                              |                                         |
-                                     +--------+---------+                    +----------+---------+
-                                     | AI Analysis      |                    | Database           |
-                                     | Service          |<-------------------+ Storage            |
-                                     +------------------+    stores results  +--------------------+
+# Fake News Detection System Architecture
+
+This document outlines the architecture and workflow of the Fake News Detection system.
+
+## System Components:
+
+1.  **Frontend (`app/frontend/streamlit_app.py`):**
+    *   Built with Streamlit.
+    *   Provides the user interface for inputting news articles (title and content) and viewing analysis results.
+    *   Communicates with the backend API to send news for analysis and retrieve results.
+
+2.  **Backend API (`app/api/app.py`):**
+    *   Built with FastAPI.
+    *   Exposes endpoints for news verification (`/verify`), submitting feedback (`/feedback`), and retrieving history (`/history`).
+    *   Handles incoming requests, orchestrates the analysis via the `FakeNewsAgent`, and returns structured responses.
+    *   Manages database interactions for storing analysis results and feedback.
+
+3.  **Agent (`app/agents/fake_news_agent.py`):**
+    *   The core logic unit responsible for the fake news detection process.
+    *   Coordinates various services to gather information and perform analysis.
+    *   Aggregates results and computes a final verdict, score, and confidence level.
+
+4.  **Services (`app/services/`):**
+    *   **`ai_service.py`:**
+        *   Interfaces with a Large Language Model (LLM), specifically Gemini as indicated by logs.
+        *   Performs Retrieval Augmented Generation (RAG) by combining user-provided news content with context retrieved from other services (Reddit, Wikipedia, News APIs) to assess factuality, consistency, and potential bias.
+        *   Conducts sentiment analysis on the news content.
+    *   **`news_service.py`:**
+        *   Fetches related news articles from multiple external news APIs (e.g., GNews, NewsData API, NewsAPI).
+    *   **`reddit_service.py`:**
+        *   Searches Reddit for discussions and posts related to the input news topic.
+    *   **`wikipedia_service.py`:**
+        *   Searches Wikipedia for relevant articles and summaries.
+
+5.  **Database (`app/models/database.py` & `app/data/fakenews.db`):**
+    *   Uses SQLAlchemy for ORM and SQLite as the database engine.
+    *   Stores historical analysis results, including the input news, verdict, scores, and detailed findings.
+    *   Stores user feedback on the analysis.
+
+## Analysis Workflow:
+
+1.  **User Input (Frontend):**
+    *   The user enters a news headline and its content into the Streamlit interface.
+    *   The `analyze_news` function in `streamlit_app.py` sends this data via a POST request to the `/verify` endpoint of the backend API.
+
+2.  **API Request Handling (Backend):**
+    *   The FastAPI backend receives the request at the `/verify` endpoint.
+    *   It instantiates or uses an existing `FakeNewsAgent`.
+    *   It calls the `analyze_news` method of the agent, passing the title and content.
+
+3.  **Core Analysis by Agent:**
+    *   The `FakeNewsAgent.analyze_news` method orchestrates the analysis:
+        *   **a. Data Collection:**
+            *   `RedditService` is called to search for relevant discussions.
+            *   `WikipediaService` is called to find relevant articles.
+            *   `NewsService` is called to fetch related news articles from external APIs.
+        *   **b. AI-Powered Analysis (via `AIService`):**
+            *   **RAG (Retrieval Augmented Generation):** The input news content, along with the context retrieved in step 3a, is passed to the LLM. The LLM analyzes this combined information to assess factuality, consistency, and potential bias. This produces a "RAG analysis" including a factual score, a verdict (e.g., "seems factual", "contradictory"), and confidence.
+            *   **Sentiment Analysis:** The `AIService` also performs sentiment analysis on the input news content to determine if its tone is positive, negative, or neutral.
+        *   **c. Result Aggregation & Scoring:**
+            *   The agent gathers all outputs: Reddit data (discussion count, top subreddits, sample posts), Wikipedia data (article titles, summaries), News API data (article count, source count, sample articles), RAG analysis, and sentiment analysis.
+            *   Based on a predefined logic or model (which may involve weighting different factors), the agent calculates:
+                *   An overall `verdict` (e.g., FAKE, REAL, UNKNOWN).
+                *   An overall `score` (credibility score, typically 0-100).
+                *   A `confidence` level for its verdict.
+                *   A breakdown of the score into components like `source_credibility`, `content_consistency`, and `fact_verification`.
+        *   **d. Compilation:** The agent compiles all these findings into a comprehensive structured dictionary.
+
+4.  **API Response (Backend):**
+    *   The `/verify` endpoint receives the detailed result dictionary from the agent.
+    *   It formats this into a `VerificationResponse` model. This model has:
+        *   Top-level fields: `article_id` (set later by background task), `verdict`, `is_fake` (boolean), `score`, `confidence`, `processing_time`.
+        *   A nested `details` field: This field contains the full, rich output from the agent, including all the raw and processed data from Reddit, Wikipedia, News APIs, RAG analysis, sentiment analysis, and the score breakdown.
+    *   A background task (`fake_news_agent.save_analysis`) is initiated to save the analysis result (including title, content, and the full result dictionary) to the SQLite database.
+
+5.  **Displaying Results (Frontend):**
+    *   The `analyze_news` function in `streamlit_app.py` receives the JSON response from the API.
+    *   The `display_analysis_result` function parses this response:
+        *   It correctly accesses top-level fields for the main verdict and scores.
+        *   It correctly accesses the nested data within the `details` field for the comprehensive breakdown (Reddit info, Wikipedia info, RAG analysis, sentiment, score breakdown components).
+        *   It uses this information to populate the various UI elements: verdict display, confidence metric, processing time, credibility score gauge, score breakdown bar chart, and the detailed analysis tabs (Source Analysis, News Consistency, RAG Analysis, Sentiment).
+
+## Data Flow Summary:
+
+User Input (Streamlit) -> POST Request -> FastAPI `/verify` Endpoint -> `FakeNewsAgent` -> (Calls `RedditService`, `WikipediaService`, `NewsService`, `AIService`) -> Agent Aggregates & Scores -> FastAPI Responds with `VerificationResponse` (including nested `details`) -> Streamlit Parses and Displays Results.
+
+## Key Technologies:
+
+*   **Python:** Core programming language.
+*   **Streamlit:** For the frontend web application.
+*   **FastAPI:** For the backend REST API.
+*   **SQLAlchemy:** ORM for database interaction.
+*   **SQLite:** Database for storing data.
+*   **Requests:** For making HTTP calls to external News APIs.
+*   **Pydantic:** For data validation and settings management in FastAPI.
+*   **LLM (Gemini):** For AI-driven content analysis (RAG, sentiment).
+*   **Plotly:** For generating interactive charts in the frontend.
+*   **Pandas:** For data manipulation, especially in the frontend for chart creation.

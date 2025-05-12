@@ -153,9 +153,14 @@ class NewsAPIService:
             return []
         
         try:
+            # Truncate query to avoid GNews API limitation (200 char max)
+            truncated_query = query[:190] if len(query) > 190 else query
+            if len(query) > 190:
+                logger.info(f"GNews query truncated from {len(query)} to 190 characters")
+            
             url = "https://gnews.io/api/v4/search"
             params = {
-                "q": query,
+                "q": truncated_query,
                 "lang": "en",
                 "token": self.gnews_key
             }

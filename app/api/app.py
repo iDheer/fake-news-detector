@@ -75,7 +75,7 @@ async def root():
     }
 
 
-@app.post("/api/verify", response_model=VerificationResponse)
+@app.post("/verify", response_model=VerificationResponse)
 async def verify_news(
     news: NewsRequest, 
     background_tasks: BackgroundTasks
@@ -120,7 +120,7 @@ async def verify_news(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/feedback")
+@app.post("/feedback")
 async def submit_feedback(
     feedback: FeedbackRequest,
     db: Session = Depends(get_db)
@@ -161,7 +161,7 @@ async def submit_feedback(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/history")
+@app.get("/history")
 async def get_history(
     limit: int = 10,
     offset: int = 0,
