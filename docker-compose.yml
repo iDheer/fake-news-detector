@@ -1,0 +1,13 @@
+version: '3'
+
+services:
+  fakenews:
+    build: .
+    ports:
+      - "8000:8000"  # FastAPI
+      - "8501:8501"  # Streamlit
+    env_file:
+      - .env
+    volumes:
+      - ./app:/app/app
+    restart: unless-stopped

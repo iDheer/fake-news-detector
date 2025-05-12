@@ -1,0 +1,55 @@
+digraph G {
+    rankdir=LR;
+    node [shape=box, style=filled, color=lightblue];
+    
+    User [shape=circle, label="User", color=lightgreen];
+    
+    subgraph cluster_frontend {
+        label="Frontend";
+        style=filled;
+        color=lightgrey;
+        
+        Streamlit [label="Streamlit UI"];
+    }
+    
+    subgraph cluster_backend {
+        label="Backend";
+        style=filled;
+        color=lightgrey;
+        
+        FastAPI [label="FastAPI"];
+        Agent [label="Fake News Agent"];
+        
+        FastAPI -> Agent [label="orchestrates"];
+    }
+    
+    subgraph cluster_services {
+        label="Services";
+        style=filled;
+        color=lightgrey;
+        
+        Reddit [label="Reddit Service"];
+        Wikipedia [label="Wikipedia Service"];
+        News [label="News API Service"];
+        AI [label="AI Analysis Service"];
+    }
+    
+    subgraph cluster_data {
+        label="Data Storage";
+        style=filled;
+        color=lightgrey;
+        
+        DB [label="SQLite Database"];
+    }
+    
+    User -> Streamlit [label="interacts"];
+    Streamlit -> FastAPI [label="API calls"];
+    
+    Agent -> Reddit [label="retrieves data"];
+    Agent -> Wikipedia [label="retrieves data"];
+    Agent -> News [label="retrieves data"];
+    Agent -> AI [label="analyzes content"];
+    
+    Agent -> DB [label="stores results"];
+    FastAPI -> DB [label="queries data"];
+}

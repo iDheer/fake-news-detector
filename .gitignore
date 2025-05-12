@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+.project
+.pydevproject
+.settings/
+
+# Database
+*.db
+*.sqlite3
+app/data/*.db
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.local
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Project specific
+app/data/*
+!app/data/.gitkeep
+
+# Jupyter notebooks
+.ipynb_checkpoints
+*.ipynb
+
+# Test cache
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Gemini test script (temporary)
+gemini_test.py
