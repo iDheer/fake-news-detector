@@ -1,7 +1,7 @@
 """
 Streamlit frontend for Fake News Detection system
 """
-import os
+import os # Ensure os is imported
 import streamlit as st
 import requests
 import pandas as pd
@@ -19,8 +19,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# API URL - change this when deploying to cloud
-API_URL = "http://localhost:8000"
+# API URL - will be read from environment variable in cloud, fallback for local
+API_URL = os.environ.get("API_URL", "http://localhost:8000")
 
 # Custom CSS with improved color scheme and readability
 st.markdown("""
