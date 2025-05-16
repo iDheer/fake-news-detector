@@ -62,7 +62,7 @@ class AIAnalysisService:
                 
             # Define the prompt template (used by both OpenAI and Gemini)
             self.fact_check_template = PromptTemplate(
-                input_variables=["news_title", "news_content", "sources"],
+                input_variables=["news_title", "news_content", "sources", "subcategory_info"],
                 template="""
                 As an AI fact-checker, analyze the following news article for credibility.
                 
@@ -70,17 +70,41 @@ class AIAnalysisService:
                 
                 ARTICLE CONTENT: {news_content}
                 
-                REFERENCE SOURCES:
+                ADDITIONAL CONTEXT:
                 {sources}
+
+                PRE-ANALYSIS (if available, from a specialized model):
+                {subcategory_info}
                 
                 Please provide:
                 1. A factual accuracy score (0-100%)
                 2. Identification of any misleading claims
-                3. Assessment of source credibility
+                3. Assessment of source credibility (considering both provided sources and your general knowledge)
                 4. Overall verdict (REAL NEWS or FAKE/MISLEADING NEWS)
                 5. Confidence in your assessment (0-100%)
                 
                 Format your response as a structured analysis with clear headings.
+                """
+            )
+
+            self.summarization_template = PromptTemplate(
+                input_variables=["news_title", "news_content", "verification_verdict", "verification_score", "key_points"],
+                template="""
+                Based on the following news article and its verification analysis, provide a concise summary.
+
+                ARTICLE TITLE: {news_title}
+                ARTICLE CONTENT:
+                {news_content}
+
+                VERIFICATION RESULT:
+                Verdict: {verification_verdict}
+                Score: {verification_score}/100
+                Key Supporting Points/Reasons: {key_points}
+
+                Your task is to:
+                1. Generate a neutral, brief summary of the news article itself (2-3 sentences).
+                2. Briefly state the overall verification outcome and the main reason(s) for it.
+                Ensure the summary is objective and clearly distinguishes between the news content and its assessment.
                 """
             )
               # Initialize OpenAI if configured and available
@@ -96,6 +120,7 @@ class AIAnalysisService:
                     
                     # Create a chain using the newer API (replacing deprecated LLMChain)
                     self.fact_check_chain = self.fact_check_template | self.llm
+                    self.summarization_chain = self.summarization_template | self.llm
                     logger.info("OpenAI LLM initialized successfully")
                 except Exception as e:
                     logger.error(f"Error initializing OpenAI: {e}")
@@ -117,6 +142,7 @@ class AIAnalysisService:
                     )
                       # Create a chain using the newer API (replacing deprecated LLMChain)
                     self.fact_check_chain = self.fact_check_template | self.llm
+                    self.summarization_chain = self.summarization_template | self.llm
                     logger.info("Gemini LLM initialized successfully")
                 except Exception as e:
                     logger.error(f"Error initializing Gemini: {e}")
@@ -264,7 +290,8 @@ class AIAnalysisService:
         title: str, 
         content: str, 
         wiki_data: List[Dict[str, Any]], 
-        news_data: List[Dict[str, Any]]
+        news_data: List[Dict[str, Any]],
+        subcategory_info: str = "Not available" # New parameter
     ) -> Dict[str, Any]:
         """
         Analyze news using Retrieval Augmented Generation
@@ -274,13 +301,14 @@ class AIAnalysisService:
             content: News article content
             wiki_data: Wikipedia articles data
             news_data: News articles data
+            subcategory_info: Optional information from a subcategory classification model.
             
         Returns:
             Dictionary with analysis results
         """
         # Check if either OpenAI or Gemini is available
-        if not (self.openai_available or self.gemini_available):
-            return {"error": "Neither OpenAI nor Gemini API is available"}
+        if not (self.openai_available or self.gemini_available) or not self.fact_check_chain:
+            return {"error": "LLM (OpenAI or Gemini) API is not available or chain not initialized"}
         
         try:
             # Prepare reference sources text
@@ -301,55 +329,114 @@ class AIAnalysisService:
                 lambda: self.fact_check_chain.invoke({
                     "news_title": title,
                     "news_content": content,
-                    "sources": sources_text
-                }).content
+                    "sources": sources_text,
+                    "subcategory_info": subcategory_info # Pass new info
+                })
             )
             
-            # Extract key information from the result
-            lines = result.split('\n')
+            # Parse the structured response (this might need adjustment based on actual LLM output)
+            # For now, returning raw text, but ideally, parse into a dict
+            response_text = result.content # Assuming result is an AIMessage or similar with a content attribute
             
-            # Parse the result to extract structured information
-            factual_score = None
-            verdict = None
-            confidence = None
-            
-            for line in lines:
-                if "accuracy score" in line.lower():
-                    try:
-                        # Extract percentage
-                        factual_score = int(line.split('%')[0].split()[-1])
-                    except:
-                        pass
-                elif "verdict" in line.lower():
-                    if "fake" in line.lower() or "misleading" in line.lower():
-                        verdict = "FAKE"
-                    elif "real" in line.lower():
-                        verdict = "REAL"
-                elif "confidence" in line.lower():
-                    try:
-                        # Extract percentage
-                        confidence = int(line.split('%')[0].split()[-1])
-                    except:
-                        pass
-            
-            # If we couldn't extract structured information, use default values
-            if factual_score is None:
-                factual_score = 50
-            
-            if verdict is None:
-                verdict = "UNCERTAIN"
-                
-            if confidence is None:
-                confidence = 70
-            
-            return {
-                "factual_score": factual_score,
-                "verdict": verdict,
-                "confidence": confidence,
-                "detailed_analysis": result,
-                "is_fake": verdict == "FAKE"
-            }
+            # Basic parsing attempt (highly dependent on LLM's consistency)
+            parsed_result = {"raw_analysis": response_text}
+            try:
+                # Example: Extract factual score if "Factual Accuracy Score: XX%" is present
+                if "factual accuracy score" in response_text.lower():
+                    score_str = response_text.lower().split("factual accuracy score:")[1].split("%")[0].strip()
+                    parsed_result["factual_score"] = int(float(score_str))
+                if "overall verdict" in response_text.lower():
+                    verdict_str = response_text.lower().split("overall verdict:")[1].split("\n")[0].strip()
+                    parsed_result["verdict"] = verdict_str
+                    parsed_result["is_fake"] = "fake" in verdict_str.lower() or "misleading" in verdict_str.lower()
+                if "confidence in your assessment" in response_text.lower():
+                    confidence_str = response_text.lower().split("confidence in your assessment:")[1].split("%")[0].strip()
+                    parsed_result["confidence"] = int(float(confidence_str))
+            except Exception as e:
+                logger.warning(f"Could not parse RAG analysis: {e}. Returning raw text.")
+
+            return parsed_result
             
         except Exception as e:
-            logger.error(f"Error analyzing news with RAG: {e}")
+            logger.error(f"Error in RAG analysis: {e}")
             return {"error": str(e)}
+
+    async def classify_news_subcategories_hf(self, text_content: str) -> Dict[str, Any]:
+        """
+        Placeholder for Hugging Face model to classify news into subcategories.
+        This should be replaced with actual model loading and inference.
+        Args:
+            text_content: The news article content.
+        Returns:
+            A dictionary with classification results.
+        """
+        logger.info(f"Simulating HF subcategory classification for content (first 50 chars): {text_content[:50]}...")
+        # Simulate some processing delay
+        await asyncio.sleep(0.1)
+        
+        # Mock response - replace with actual model output
+        # Example:
+        if "election" in text_content.lower() or "politics" in text_content.lower():
+            return {
+                "primary_subcategory": "Politics",
+                "secondary_subcategory": "Domestic Elections",
+                "confidence": 0.85,
+                "keywords_detected": ["election", "candidate"],
+                "model_used": "placeholder_hf_political_news_v1"
+            }
+        elif "market" in text_content.lower() or "economy" in text_content.lower():
+            return {
+                "primary_subcategory": "Economics",
+                "secondary_subcategory": "Stock Market",
+                "confidence": 0.90,
+                "keywords_detected": ["market", "stocks", "trade"],
+                "model_used": "placeholder_hf_economic_news_v1"
+            }
+        else:
+            return {
+                "primary_subcategory": "General News",
+                "secondary_subcategory": None,
+                "confidence": 0.70,
+                "keywords_detected": [],
+                "model_used": "placeholder_hf_general_news_v1"
+            }
+
+    async def generate_news_summary(
+        self,
+        title: str,
+        content: str,
+        verification_verdict: str,
+        verification_score: int,
+        key_points: str # Key reasons/points from the verification
+    ) -> Dict[str, Any]:
+        """
+        Generate a summary of the news and its verification using an LLM.
+        Args:
+            title: News article title.
+            content: News article content.
+            verification_verdict: The final verdict (e.g., "REAL", "FAKE").
+            verification_score: The verification score (0-100).
+            key_points: Key points or reasons supporting the verdict.
+        Returns:
+            Dictionary with the generated summary.
+        """
+        if not (self.openai_available or self.gemini_available) or not self.summarization_chain:
+            logger.warning("Summarization LLM not available or chain not initialized.")
+            return {"summary_text": "Summarization service not available."}
+
+        try:
+            logger.info(f"Generating summary for: {title}")
+            response = await asyncio.to_thread(
+                lambda: self.summarization_chain.invoke({
+                    "news_title": title,
+                    "news_content": content,
+                    "verification_verdict": verification_verdict,
+                    "verification_score": verification_score,
+                    "key_points": key_points
+                })
+            )
+            summary_text = response.content # Assuming AIMessage like object
+            return {"summary_text": summary_text}
+        except Exception as e:
+            logger.error(f"Error generating summary: {e}")
+            return {"summary_text": f"Error generating summary: {str(e)}"}
